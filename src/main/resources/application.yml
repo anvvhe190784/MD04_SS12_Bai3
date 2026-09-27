@@ -1,0 +1,40 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: order-ecommerce-service
+
+  # Redis Configuration (Inherited from Bai 1)
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  cache:
+    type: redis
+    redis:
+      time-to-live: 30m
+      cache-null-values: false
+
+  # Kafka Configuration (Added for Bai 2)
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+
+app:
+  kafka:
+    topics:
+      order-events: order-events
+
+logging:
+  level:
+    com.example.orderservice: INFO
+    org.springframework.cache: DEBUG
+    org.apache.kafka: WARN
+
