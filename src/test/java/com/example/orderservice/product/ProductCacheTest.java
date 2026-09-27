@@ -25,10 +25,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
-import static org.awaitility.Awaitility.await;
-
 @SpringBootTest
-@EmbeddedKafka(partitions = 3, topics = { "order-events" })
+@EmbeddedKafka(partitions = 1, topics = { "order-events" })
 @DirtiesContext
 class ProductCacheTest {
 
@@ -83,7 +81,7 @@ class ProductCacheTest {
         // Verify item is now in Redis cache
         Cache cache = cacheManager.getCache("products");
         assertThat(cache).isNotNull();
-        await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> assertThat(cache.get(productId)).isNotNull());
+        assertThat(cache.get(productId)).isNotNull();
 
         // 2nd access: Cache Hit -> reads from Redis without querying DB
         long start2 = System.currentTimeMillis();
@@ -106,7 +104,7 @@ class ProductCacheTest {
         assertThat(initial).isNotNull();
         Cache cache = cacheManager.getCache("products");
         assertThat(cache).isNotNull();
-        await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> assertThat(cache.get(productId)).isNotNull());
+        assertThat(cache.get(productId)).isNotNull();
 
         // Update product -> triggers @CacheEvict
         UpdateProductRequest updateReq = new UpdateProductRequest(
@@ -118,7 +116,7 @@ class ProductCacheTest {
         assertThat(updated.name()).isEqualTo("MacBook Pro M4 Max (Inherited & Updated)");
 
         // Verify cache was evicted
-        await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> assertThat(cache.get(productId)).isNull());
+        assertThat(cache.get(productId)).isNull();
 
         // Read again -> must fetch from DB again
         clearInvocations(productRepository);

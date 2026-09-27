@@ -1,9 +1,9 @@
 server:
-  port: 8082
+  port: 8083
 
 spring:
   application:
-    name: order-ecommerce-service
+    name: flash-sale-order-service
 
   # Redis Configuration (Inherited from Bai 1)
   data:

@@ -18,9 +18,24 @@ import org.springframework.web.bind.annotation.RestController;
 public class OrderController {
 
     private final OrderService orderService;
+    private final com.example.orderservice.service.FlashSaleOrderService flashSaleOrderService;
 
-    public OrderController(OrderService orderService) {
+    public OrderController(
+            OrderService orderService,
+            com.example.orderservice.service.FlashSaleOrderService flashSaleOrderService) {
         this.orderService = orderService;
+        this.flashSaleOrderService = flashSaleOrderService;
+    }
+
+    @PostMapping("/flash-sale")
+    public ResponseEntity<OrderResponse> purchaseFlashSale(
+            @RequestBody com.example.orderservice.dto.FlashSalePurchaseRequest request) {
+        OrderResponse response = flashSaleOrderService.purchaseFlashSaleProduct(
+                request.customerId(),
+                request.customerEmail(),
+                request.productId(),
+                request.quantity() != null ? request.quantity() : 1);
+        return ResponseEntity.created(URI.create("/api/orders/" + response.id())).body(response);
     }
 
     @PostMapping

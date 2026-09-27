@@ -17,6 +17,14 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(OutOfStockException.class)
+    public ProblemDetail handleOutOfStock(OutOfStockException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Product Out Of Stock");
+        problem.setProperty("timestamp", Instant.now());
+        return problem;
+    }
+
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleGeneralError(Exception ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());

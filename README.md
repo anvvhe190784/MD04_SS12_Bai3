@@ -1,24 +1,21 @@
-# MD04_SS12_Bai3: Anti-Overselling with Redisson Distributed Lock, Kafka & Redis Cache
+# MD04_SS12_Bai2: Asynchronous Order Processing with Kafka & Redis Cache
 
-This repository contains the complete implementation for **Exercise 3 (Bài tập 3)** of Module 04 - Session 12, **inheriting all features from Exercise 1 and Exercise 2**.
+This repository contains the complete implementation for **Exercise 2 (Bài tập 2)** of Module 04 - Session 12, **inheriting all features from Exercise 1 (Bài tập 1)**.
 
 ---
 
 ## 1. Objectives & Overview
 
-- **Inherited from Exercise 1 (Redis Cache-aside):**
+- **Inherited from Exercise 1:**
   - Product Service with **Cache-aside Pattern** using Redis Cache.
   - 30-minute TTL for cached products.
   - Automatic cache eviction (`@CacheEvict`) upon updating product data.
-- **Inherited from Exercise 2 (Kafka Async Order Processing):**
-  - **Order-Service (Producer):** Saves orders to DB with status `PENDING` and asynchronously publishes `OrderCreatedEvent` to Kafka topic `order-events` without blocking the client.
-  - **Email-Service (Consumer):** Listens to `order-events` (`email-service-group`) to send confirmation emails.
-  - **Inventory-Service (Consumer):** Listens to `order-events` (`inventory-service-group`) to deduct stock asynchronously.
-- **Exercise 3 Core Implementation (Anti-Overselling with Redisson Lock):**
-  - **Flash Sale Concurrency Protection:** When multiple concurrent requests compete for scarce items (e.g., 100 requests for 1 stock item), prevents race conditions and overselling.
-  - **Redisson Distributed Lock:** Acquires distributed lock with key `lock:product:{id}` using `RLock.tryLock(waitTime, leaseTime, TimeUnit)`.
-  - **Safe Execution & Unlock:** Performs inventory stock checks and deduction only after acquiring the lock, guaranteeing lock release in a `finally` block (`if (lock.isHeldByCurrentThread()) lock.unlock();`).
-  - **Strict Outcome:** Exactly matches available stock to successful orders; surplus buyers receive a `"Sản phẩm đã hết hàng"` rejection (HTTP 409 Conflict).
+  - Initial simulated database query latency of ~200ms; subsequent cached reads complete in < 10ms.
+- **Exercise 2 Core Implementations:**
+  - **Asynchronous Order Processing** using Apache Kafka.
+  - **Order-Service (Producer):** Receives client orders, resolves product metadata from Redis-cached Product Service, persists orders into database with status `PENDING`, and asynchronously publishes `OrderCreatedEvent` to the Kafka topic `order-events` without blocking the client.
+  - **Email-Service (Consumer):** Listens to `order-events` with Consumer Group `email-service-group` to simulate dispatching confirmation emails.
+  - **Inventory-Service (Consumer):** Listens to `order-events` with Consumer Group `inventory-service-group` to simulate inventory stock deduction independently and concurrently.
 
 ---
 
@@ -29,47 +26,37 @@ This repository contains the complete implementation for **Exercise 3 (Bài tậ
                     |   Client Request   |
                     +---------+----------+
                               |
-                 POST /api/orders/flash-sale
+                     POST /api/orders
                               |
                               v
-                +----------------------------+
-                |   FlashSaleOrderService    |
-                +--------------+-------------+
-                               |
-               1. Acquire Lock | Key: "lock:product:{id}"
-                               v
-                    +---------------------+
-                    | Redis Distributed   |
-                    |   Lock (Redisson)   |
-                    +----------+----------+
-                               |
-                   Lock Acquired!
-                               v
-                    +---------------------+
-                    | Check & Deduct Stock|
-                    |   (In Repository)   |
-                    +----------+----------+
-                               |
-                    Stock >= Qty ?
-                   /              \
-             YES  /                \  NO
-                 v                  v
-     +--------------------+   +-----------------------+
-     |   Order Service    |   | OutOfStockException   |
-     |   (Save PENDING)   |   | "Sản phẩm đã hết hàng"|
-     +---------+----------+   +-----------------------+
-               |                          |
-               | Publishes Event          |
-               v                          |
-      ====================                |
-      Kafka Topic "events"                |
-      ====================                |
-         /              \                 |
-        v                v                v
-   +----------+    +-----------+    +-----------+
-   |  Email   |    | Inventory |    |  finally  |
-   | Consumer |    |  Consumer |    |  unlock!  |
-   +----------+    +-----------+    +-----------+
+                    +--------------------+
+                    |   Order Service    |
+                    |     (Producer)     |
+                    +---+------------+---+
+                        |            |
+         Queries Product|            | Saves Order (PENDING)
+         via Cache-Aside|            |
+                        v            v
+            +---------------+   +------------+
+            |  Redis Cache  |   |  Order DB  |
+            |   (30m TTL)   |   +------------+
+            +---------------+
+                        |
+                        | Publishes OrderCreatedEvent (Async non-blocking)
+                        v
+         =======================================
+               Kafka Topic: "order-events"
+         =======================================
+                   /                 \
+                  /                   \
+        Consumer Group:           Consumer Group:
+     "email-service-group"    "inventory-service-group"
+                /                       \
+               v                         v
+     +-------------------+     +-------------------+
+     |   Email Service   |     | Inventory Service |
+     |  Sends Order Mail |     | Deducts Stock     |
+     +-------------------+     +-------------------+
 ```
 
 ---
@@ -78,9 +65,8 @@ This repository contains the complete implementation for **Exercise 3 (Bài tậ
 
 - **Java:** 21 LTS
 - **Spring Boot:** 4.1.1
-- **Distributed Lock:** Redisson 3.40.2 (`RedissonClient`, `RLock`)
-- **Cache & Key-Value:** Redis 7 (Spring Data Redis, Lettuce, Cache-Aside)
-- **Messaging:** Apache Kafka (KRaft mode, Spring Kafka, `@EmbeddedKafka`)
+- **Apache Kafka:** KRaft Mode (Producer & Consumer with `@KafkaListener`, Spring Kafka, `@EmbeddedKafka` for integration testing)
+- **Redis:** Redis 7 (Spring Data Redis, Lettuce, Cache-Aside, JSON serialization)
 - **Testing:** JUnit 5, AssertJ, Awaitility, Mockito
 - **Build Tool:** Gradle
 
@@ -93,84 +79,85 @@ This repository contains the complete implementation for **Exercise 3 (Bài tậ
 - Java 21+
 - Docker & Docker Compose
 
-### Starting Infrastructure
+### Starting Infrastructure (Kafka & Redis)
 
+Start Redis and Kafka KRaft container:
 ```bash
 docker compose up -d
 ```
-Starts Redis on port `6379` and Kafka KRaft on port `9092`.
 
 ### Running the Application
 
 ```bash
 ./gradlew bootRun
 ```
-The application starts on port `8083`.
+The application will start on port `8082`.
 
 ---
 
 ## 5. API Endpoints
 
-### Flash Sale Order (Bai 3)
+### Product Management (Inherited from Bai 1)
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `POST` | `/api/orders/flash-sale` | Purchases flash-sale product protected by Redisson distributed lock |
+| `GET` | `/api/products` | Retrieve all products |
+| `GET` | `/api/products/{id}` | Retrieve product by ID (Cache-aside: 1st call ~200ms DB, subsequent <10ms Redis) |
+| `POST` | `/api/products` | Create a new product |
+| `PUT` | `/api/products/{id}` | Update product & invalidate cache (`@CacheEvict`) |
 
-#### Sample Request (`POST /api/orders/flash-sale`):
+### Order Processing (Bai 2)
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/orders` | Place a new order; returns immediately (`PENDING`), dispatches Kafka event |
+| `GET` | `/api/orders/{id}` | Retrieve order status by ID |
+| `GET` | `/api/orders` | List all orders |
+
+#### Sample Request (`POST /api/orders`):
 ```json
 {
   "customerId": 1001,
-  "customerEmail": "user@example.com",
-  "productId": 4,
-  "quantity": 1
+  "customerEmail": "customer@example.com",
+  "items": [
+    {
+      "productId": 1,
+      "productName": "iPhone 16 Pro Max",
+      "quantity": 1,
+      "price": 34990000
+    },
+    {
+      "productId": 3,
+      "productName": "AirPods Pro 2",
+      "quantity": 2,
+      "price": 5990000
+    }
+  ]
 }
 ```
 
-#### Success Response (`201 Created`):
+#### Sample Response:
 ```json
 {
   "id": 1,
   "customerId": 1001,
-  "customerEmail": "user@example.com",
+  "customerEmail": "customer@example.com",
   "status": "PENDING",
-  "totalAmount": 89990000,
-  "createdAt": "2026-09-27T15:30:00Z",
+  "totalAmount": 46970000,
+  "createdAt": "2026-09-27T15:10:00Z",
   "message": "Order placed successfully. Background processing started asynchronously via Kafka."
 }
 ```
 
-#### Out-of-Stock Response (`409 Conflict`):
-```json
-{
-  "type": "about:blank",
-  "title": "Product Out Of Stock",
-  "status": 409,
-  "detail": "Sản phẩm đã hết hàng"
-}
-```
-
-### Regular Orders & Product APIs (Inherited from Bai 1 & 2)
-
-- `GET /api/products`: Retrieve all products
-- `GET /api/products/{id}`: Cached product details (30m TTL, ~200ms DB miss, <10ms Redis hit)
-- `PUT /api/products/{id}`: Update product & evict cache (`@CacheEvict`)
-- `POST /api/orders`: Regular order placement with async Kafka dispatch
-- `GET /api/orders/{id}`: Get order details
-
 ---
 
-## 6. Verification & Concurrency Stress Test
+## 6. Running Automated Tests
 
-To verify anti-overselling under heavy concurrency, run:
+Run integration and unit tests:
 ```bash
 ./gradlew test
 ```
-
-### Concurrency Stress Test Details (`RedissonFlashSaleConcurrencyTest`):
-- **Scenario:** 100 concurrent threads simultaneously race to buy a limited Flash Sale item with **stock = 1**.
-- **Results:**
-  - Exactly **1 request succeeds** (`successCount == 1`).
-  - Exactly **99 requests are rejected** with `"Sản phẩm đã hết hàng"` (`outOfStockCount == 99`).
-  - Final remaining stock is strictly **0** (no negative stock, no overselling).
-  - Redisson lock `lock:product:4` is cleanly released (`isLocked() == false`).
+All tests verify:
+1. Cache-aside behavior, 30m TTL, and cache eviction.
+2. Immediate response from `OrderService` (non-blocking).
+3. Concurrent processing of `OrderCreatedEvent` by both `EmailService` and `InventoryService`.
